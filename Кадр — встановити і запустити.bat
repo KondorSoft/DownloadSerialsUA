@@ -42,7 +42,7 @@ function Update-App([string]$Root, [string]$App, [string]$Cache) {
         Download-File $asset.browser_download_url $zip
         Download-File $checksum.browser_download_url $sum
         $expected = ((Get-Content -LiteralPath $sum -Raw) -split '\s+')[0].ToLowerInvariant()
-        $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actual = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($zip))).Replace('-', '').ToLowerInvariant()
         if ($expected -notmatch '^[a-f0-9]{64}$' -or $actual -ne $expected) { throw 'Контрольна сума архіву не збігається.' }
         $stage = Join-Path $Root 'app.new'
         $backup = Join-Path $Root 'app.old'
