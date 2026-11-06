@@ -73,8 +73,17 @@ def create_app(data_dir: Path | None = None, token: str | None = None) -> FastAP
         if not scan or not scan.catalog:
             return job
         selected = {episode.episode_id for episode in job.episodes}
-        dimensions = {(variant.width, variant.height) for episode in scan.catalog.episodes if episode.id in selected
-                      for variant in episode.variants if variant.label == job.quality and variant.width and variant.height}
+        if job.quality in ("max", "MAX", "Максимальна"):
+            dimensions = {
+                (max(episode.variants, key=lambda v: (v.height, v.bandwidth)).width,
+                 max(episode.variants, key=lambda v: (v.height, v.bandwidth)).height)
+                for episode in scan.catalog.episodes
+                if episode.id in selected and episode.variants
+            }
+            dimensions = {(w, h) for (w, h) in dimensions if w and h}
+        else:
+            dimensions = {(variant.width, variant.height) for episode in scan.catalog.episodes if episode.id in selected
+                          for variant in episode.variants if variant.label == job.quality and variant.width and variant.height}
         if len(dimensions) == 1:
             width, height = next(iter(dimensions))
             job.resolution = f"{width} × {height}"
@@ -164,6 +173,22 @@ def create_app(data_dir: Path | None = None, token: str | None = None) -> FastAP
     async def delete_file(job_id: str, request: DeleteFileRequest):
         try:
             return await app.state.manager.delete_file(job_id, request.episode_id)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+
+    @app.delete("/api/jobs/{job_id}", dependencies=[Depends(require_token)])
+    async def delete_job(job_id: str, delete_files: bool = False):
+        try:
+            await app.state.manager.delete(job_id, delete_files=delete_files)
+            return {"status": "ok", "job_id": job_id}
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+
+    @app.post("/api/jobs/{job_id}/delete", dependencies=[Depends(require_token)])
+    async def delete_job_post(job_id: str, delete_files: bool = False):
+        try:
+            await app.state.manager.delete(job_id, delete_files=delete_files)
+            return {"status": "ok", "job_id": job_id}
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
 

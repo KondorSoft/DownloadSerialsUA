@@ -1,10 +1,10 @@
-import React from 'react';
+import type { FormEvent } from 'react';
 import { Link2, LoaderCircle, Search } from 'lucide-react';
 
 interface SearchFormProps {
   url: string;
   onUrlChange: (url: string) => void;
-  onSubmit: (event: React.FormEvent) => void;
+  onSubmit: (event: FormEvent) => void;
   disabled: boolean;
   isScanning: boolean;
 }

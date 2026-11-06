@@ -11,3 +11,4 @@ export { QueueSidebar } from './queue/QueueSidebar';
 export { JobCard } from './queue/JobCard';
 export { JobEpisodeRow } from './queue/JobEpisodeRow';
 export { QueueEmpty } from './queue/QueueEmpty';
+export { DeleteJobModal } from './queue/DeleteJobModal';

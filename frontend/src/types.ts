@@ -67,6 +67,7 @@ export interface QualityOption {
   count: number;
   estimate: number;
   frames: string[];
+  isMax?: boolean;
 }
 
 export type DownloadMode = 'sequential' | 'parallel';

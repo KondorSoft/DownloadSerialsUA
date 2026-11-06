@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, connectEvents, token } from './api';
 import {
   CatalogHeading,
+  DeleteJobModal,
   DownloadSettings,
   EpisodeList,
   Footer,
@@ -12,7 +13,7 @@ import {
   ScanStatus,
   SearchForm,
 } from './components';
-import type { DownloadJob, DownloadMode, Episode, QualityOption, ScanState } from './types';
+import type { DownloadJob, DownloadMode, Episode, QualityOption, ScanState, Variant } from './types';
 import { formatFrame, updateJob } from './utils/format';
 
 export default function App() {
@@ -28,6 +29,8 @@ export default function App() {
   const [parallel, setParallel] = useState(4);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [jobToDelete, setJobToDelete] = useState<DownloadJob | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const catalog = scan?.catalog || null;
   const isFilm = !!catalog && catalog.episodes.length === 1 && catalog.episodes[0].season === null;
@@ -36,8 +39,37 @@ export default function App() {
   const selectedEpisodes = useMemo(() => visibleEpisodes.filter((episode) => selected.includes(episode.id)), [visibleEpisodes, selected]);
 
   const qualities: QualityOption[] = useMemo(() => {
+    if (!selectedEpisodes.length) return [];
+
+    const bestVariantsPerEpisode = selectedEpisodes
+      .map((episode) => {
+        if (!episode.variants.length) return null;
+        return [...episode.variants].sort((a, b) => {
+          if (b.height !== a.height) return b.height - a.height;
+          return (parseInt(b.label, 10) || 0) - (parseInt(a.label, 10) || 0);
+        })[0];
+      })
+      .filter(Boolean) as Variant[];
+
+    const maxEstimate = bestVariantsPerEpisode.reduce((total, variant) => total + (variant.estimated_bytes || 0), 0);
+    const maxFrames = [
+      ...new Set(
+        bestVariantsPerEpisode.map((variant) =>
+          formatFrame(variant.width, variant.height, variant.label)
+        )
+      ),
+    ];
+
+    const maxOption: QualityOption = {
+      label: 'max',
+      count: selectedEpisodes.length,
+      estimate: maxEstimate,
+      frames: maxFrames,
+      isMax: true,
+    };
+
     const labels = [...new Set(selectedEpisodes.flatMap((episode) => episode.variants.map((variant) => variant.label)))];
-    return labels
+    const standardQualities = labels
       .sort((a, b) => parseInt(b, 10) - parseInt(a, 10))
       .map((label) => ({
         label,
@@ -55,7 +87,10 @@ export default function App() {
             )
           ),
         ],
+        isMax: false,
       }));
+
+    return [maxOption, ...standardQualities];
   }, [selectedEpisodes]);
 
   const chosenQuality = qualities.find((item) => item.label === quality);
@@ -73,6 +108,9 @@ export default function App() {
       socket = connectEvents((event) => {
         if (event.type === 'job' && event.job) setJobs((current) => updateJob(current, event.job!));
         if (event.type === 'scan' && event.scan) setScan(event.scan);
+        if (event.type === 'job_deleted' && event.job_id) {
+          setJobs((current) => current.filter((item) => item.id !== event.job_id));
+        }
       });
       socket.onclose = () => {
         timer = window.setTimeout(open, 2000);
@@ -120,7 +158,7 @@ export default function App() {
     }
   }, [qualities, quality, selectedEpisodes.length]);
 
-  async function search(event: React.FormEvent) {
+  async function search(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setMessage('');
@@ -181,6 +219,24 @@ export default function App() {
       setMessage('Файл видалено з диска.');
     } catch (error) {
       setMessage((error as Error).message);
+    }
+  }
+
+  async function confirmDeleteJob(job: DownloadJob, deleteFiles: boolean) {
+    setDeleteBusy(true);
+    try {
+      await api.deleteJob(job.id, deleteFiles);
+      setJobs((current) => current.filter((item) => item.id !== job.id));
+      setJobToDelete(null);
+      setMessage(
+        deleteFiles
+          ? `Завдання «${job.title}» та файли на диску видалено.`
+          : `Завдання «${job.title}» видалено зі списку.`
+      );
+    } catch (error) {
+      setMessage((error as Error).message);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -255,10 +311,18 @@ export default function App() {
           onCancel={(id) => action(id, 'cancel')}
           onRetry={(id) => action(id, 'retry')}
           onDeleteFile={deleteFile}
+          onDeleteJob={(job) => setJobToDelete(job)}
         />
       </main>
 
       <Footer />
+
+      <DeleteJobModal
+        job={jobToDelete}
+        onClose={() => setJobToDelete(null)}
+        onConfirm={confirmDeleteJob}
+        busy={deleteBusy}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { RotateCcw, Square } from 'lucide-react';
+import { RotateCcw, Square, Trash2 } from 'lucide-react';
 import type { DownloadJob } from '../../types';
 import { statusText } from '../../utils/format';
 import { JobEpisodeRow } from './JobEpisodeRow';
@@ -8,9 +8,16 @@ interface JobCardProps {
   onCancel: (id: string) => void;
   onRetry: (id: string) => void;
   onDeleteFile: (job: DownloadJob, episodeId: string) => void;
+  onDeleteJob: (job: DownloadJob) => void;
 }
 
-export function JobCard({ job, onCancel, onRetry, onDeleteFile }: JobCardProps) {
+export function JobCard({
+  job,
+  onCancel,
+  onRetry,
+  onDeleteFile,
+  onDeleteJob,
+}: JobCardProps) {
   const complete = job.episodes.filter((episode) => episode.status === 'complete').length;
   const progress = Math.round(
     job.episodes.reduce((sum, episode) => sum + episode.percent, 0) / job.episodes.length
@@ -26,10 +33,23 @@ export function JobCard({ job, onCancel, onRetry, onDeleteFile }: JobCardProps) 
           <strong>{job.title}</strong>
           <span>
             {filmJob ? 'Фільм' : `${job.episodes.length} серій`} ·{' '}
-            {job.resolution ? `${job.resolution} (${job.quality})` : job.quality}
+            {job.resolution
+              ? `${job.resolution}${job.quality === 'max' ? ' (Максимальна)' : ` (${job.quality})`}`
+              : (job.quality === 'max' ? 'Максимальна' : job.quality)}
           </span>
         </div>
-        <span className={`job-status ${job.status}`}>{statusText[job.status]}</span>
+        <div className="job-top-right">
+          <span className={`job-status ${job.status}`}>{statusText[job.status]}</span>
+          {/* <button
+            className="card-delete"
+            type="button"
+            title="Видалити картку завдання"
+            aria-label={`Видалити картку завдання ${job.title}`}
+            onClick={() => onDeleteJob(job)}
+          >
+            <Trash2 size={14} />
+          </button> */}
+        </div>
       </div>
       <div className="job-progress">
         <div style={{ width: `${progress}%` }} />
@@ -60,6 +80,14 @@ export function JobCard({ job, onCancel, onRetry, onDeleteFile }: JobCardProps) 
             <RotateCcw size={14} /> Повторити невдалі
           </button>
         )}
+        <button
+          type="button"
+          className="job-action-delete"
+          onClick={() => onDeleteJob(job)}
+          title="Видалити картку завдання"
+        >
+          <Trash2 size={13} /> Видалити
+        </button>
       </div>
     </article>
   );

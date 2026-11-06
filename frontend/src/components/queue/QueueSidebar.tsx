@@ -7,6 +7,7 @@ interface QueueSidebarProps {
   onCancel: (id: string) => void;
   onRetry: (id: string) => void;
   onDeleteFile: (job: DownloadJob, episodeId: string) => void;
+  onDeleteJob: (job: DownloadJob) => void;
 }
 
 export function QueueSidebar({
@@ -14,6 +15,7 @@ export function QueueSidebar({
   onCancel,
   onRetry,
   onDeleteFile,
+  onDeleteJob,
 }: QueueSidebarProps) {
   const activeJobs = jobs.filter((job) =>
     ['queued', 'downloading', 'partial', 'failed', 'interrupted'].includes(job.status)
@@ -44,6 +46,7 @@ export function QueueSidebar({
               onCancel={onCancel}
               onRetry={onRetry}
               onDeleteFile={onDeleteFile}
+              onDeleteJob={onDeleteJob}
             />
           ))}
         </div>

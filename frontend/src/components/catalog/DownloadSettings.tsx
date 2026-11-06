@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Check, FolderOpen, Zap } from 'lucide-react';
+import { ArrowDownToLine, Check, FolderOpen, Sparkles, Zap } from 'lucide-react';
 import type { DownloadMode, QualityOption } from '../../types';
 import { formatSize } from '../../utils/format';
 
@@ -46,23 +46,44 @@ export function DownloadSettings({
         </div>
       </div>
 
-      <label className="field-label">Якість</label>
+      <div className="quality-header">
+        <label className="field-label" style={{ margin: 0 }}>Якість</label>
+        <button
+          type="button"
+          className="max-quality-shortcut"
+          onClick={() => onQualityChange('max')}
+          title="Вибрати максимальну якість для всіх вибраних серій"
+        >
+          <Sparkles size={14} /> Максимальна якість для всіх
+        </button>
+      </div>
+
       <div className="quality-grid">
         {qualities.map((option) => (
           <button
             type="button"
             key={option.label}
-            className={`quality-option ${quality === option.label ? 'active' : ''}`}
+            className={`quality-option ${option.isMax ? 'is-max' : ''} ${quality === option.label ? 'active' : ''}`}
             disabled={option.count !== selectedCount}
             onClick={() => onQualityChange(option.label)}
           >
             <span className="quality-head">
-              <strong>{option.frames.length === 1 ? option.frames[0] : 'Різна роздільність'}</strong>
+              <strong>
+                {option.isMax
+                  ? 'Максимальна'
+                  : option.frames.length === 1
+                  ? option.frames[0]
+                  : 'Різна роздільність'}
+              </strong>
               {quality === option.label && <Check size={18} />}
             </span>
             <span>≈ {formatSize(option.estimate)}</span>
             <small>
-              {option.label} · {isFilm ? 'доступно' : `${option.count}/${selectedCount} серій`}
+              {option.isMax
+                ? (option.frames.length === 1
+                    ? `Найвища · ${option.frames[0]}`
+                    : `Найвища для кожної із ${selectedCount} серій`)
+                : `${option.label} · ${isFilm ? 'доступно' : `${option.count}/${selectedCount} серій`}`}
             </small>
           </button>
         ))}
@@ -132,7 +153,9 @@ export function DownloadSettings({
           <strong>
             {isFilm ? 'Фільм' : `${selectedCount} ${selectedCount === 1 ? 'серія' : 'серій'}`}
           </strong>
-          <span>≈ {formatSize(chosenQuality?.estimate || 0)} до завантаження</span>
+          <span>
+            {chosenQuality?.isMax ? 'Максимальна якість · ' : ''}≈ {formatSize(chosenQuality?.estimate || 0)} до завантаження
+          </span>
         </div>
         <button
           className="primary-button download-button"
