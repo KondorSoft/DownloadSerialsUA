@@ -61,3 +61,13 @@ export interface DownloadJob {
   estimated_bytes: number;
   created_at: string;
 }
+
+export interface QualityOption {
+  label: string;
+  count: number;
+  estimate: number;
+  frames: string[];
+  isMax?: boolean;
+}
+
+export type DownloadMode = 'sequential' | 'parallel';

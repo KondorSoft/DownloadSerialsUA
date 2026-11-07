@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from app.models import Catalog, DownloadJob, Episode, EpisodeProgress
+from app.models import Catalog, DownloadJob, Episode, EpisodeProgress, Variant
 from app.jobs.store import Store
 from app.sources.http import SourceHttp
 from app.sources.registry import resolve_episode
@@ -56,8 +56,34 @@ class JobManager:
         selected = [episode for episode in catalog.episodes if episode.id in set(episode_ids)]
         if not selected or len(selected) != len(set(episode_ids)):
             raise ValueError("Виберіть серії зі знайденого списку.")
-        if any(not any(variant.label == quality for variant in episode.variants) for episode in selected):
-            raise ValueError("Обрана якість доступна не для всіх вибраних серій.")
+
+        if quality in ("max", "MAX", "Максимальна"):
+            if any(not episode.variants for episode in selected):
+                raise ValueError("Для деяких вибраних серій немає доступних варіантів якості.")
+
+            def best_variant(ep: Episode) -> Variant:
+                return max(ep.variants, key=lambda v: (v.height, v.bandwidth))
+
+            estimated = sum(best_variant(episode).estimated_bytes for episode in selected)
+            dimensions = {(best_variant(episode).width, best_variant(episode).height) for episode in selected
+                          if best_variant(episode).width and best_variant(episode).height}
+            if len(dimensions) == 1:
+                width, height = next(iter(dimensions))
+                resolution_label = f"{width} × {height}"
+            else:
+                resolution_label = "Різна роздільність" if dimensions else "Максимальна"
+        else:
+            if any(not any(variant.label == quality for variant in episode.variants) for episode in selected):
+                raise ValueError("Обрана якість доступна не для всіх вибраних серій.")
+            estimated = sum(next(variant.estimated_bytes for variant in episode.variants if variant.label == quality) for episode in selected)
+            dimensions = {(variant.width, variant.height) for episode in selected for variant in episode.variants
+                          if variant.label == quality and variant.width and variant.height}
+            if len(dimensions) == 1:
+                width, height = next(iter(dimensions))
+                resolution_label = f"{width} × {height}"
+            else:
+                resolution_label = "Різна роздільність" if dimensions else quality
+
         if parallel_limit < 1 or parallel_limit > min(35, len(selected)):
             raise ValueError("Недопустима кількість паралельних завантажень.")
         root = Path(output_dir).expanduser()
@@ -65,14 +91,6 @@ class JobManager:
             raise ValueError("Вибрана папка не існує або недоступна.")
         if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
             raise ValueError("Не знайдено FFmpeg або ffprobe. Встановіть FFmpeg і запустіть застосунок знову.")
-        estimated = sum(next(variant.estimated_bytes for variant in episode.variants if variant.label == quality) for episode in selected)
-        dimensions = {(variant.width, variant.height) for episode in selected for variant in episode.variants
-                      if variant.label == quality and variant.width and variant.height}
-        if len(dimensions) == 1:
-            width, height = next(iter(dimensions))
-            resolution_label = f"{width} × {height}"
-        else:
-            resolution_label = "Різна роздільність" if dimensions else quality
         if shutil.disk_usage(root).free < int(estimated * 1.15):
             raise ValueError("У вибраній папці недостатньо вільного місця.")
         progress = [EpisodeProgress(episode_id=episode.id, number=episode.number, season=episode.season, voice=episode.voice)
@@ -109,8 +127,16 @@ class JobManager:
             raise ValueError("Каталог не знайдено. Виконайте пошук ще раз.")
         if not job.resolution:
             selected = {episode.episode_id for episode in job.episodes}
-            dimensions = {(variant.width, variant.height) for episode in scan.catalog.episodes if episode.id in selected
-                          for variant in episode.variants if variant.label == job.quality and variant.width and variant.height}
+            if job.quality in ("max", "MAX", "Максимальна"):
+                dimensions = {
+                    (max(ep.variants, key=lambda v: (v.height, v.bandwidth)).width,
+                     max(ep.variants, key=lambda v: (v.height, v.bandwidth)).height)
+                    for ep in scan.catalog.episodes if ep.id in selected and ep.variants
+                }
+                dimensions = {(w, h) for (w, h) in dimensions if w and h}
+            else:
+                dimensions = {(variant.width, variant.height) for episode in scan.catalog.episodes if episode.id in selected
+                              for variant in episode.variants if variant.label == job.quality and variant.width and variant.height}
             if len(dimensions) == 1:
                 width, height = next(iter(dimensions))
                 job.resolution = f"{width} × {height}"
@@ -169,6 +195,47 @@ class JobManager:
             job.status = "mixed"
         await self._publish(job)
         return job
+
+    async def delete(self, job_id: str, delete_files: bool = False) -> None:
+        job = self.store.get_job(job_id)
+        if not job:
+            raise ValueError("Завдання не знайдено.")
+        self.cancelled.add(job_id)
+        for (current_id, _), process in list(self.processes.items()):
+            if current_id == job_id and process.returncode is None:
+                try:
+                    process.terminate()
+                except Exception:
+                    pass
+        if job_id in self.tasks:
+            task = self.tasks.pop(job_id)
+            if not task.done():
+                task.cancel()
+        if delete_files:
+            root = Path(job.output_dir).resolve()
+            parent_dirs: set[Path] = set()
+            for episode in job.episodes:
+                if episode.output_file:
+                    target = Path(episode.output_file).resolve()
+                    if target.is_relative_to(root) and target.suffix.lower() == ".mp4" and target.is_file():
+                        parent_dirs.add(target.parent)
+                        try:
+                            target.unlink()
+                        except OSError:
+                            pass
+            for parent in parent_dirs:
+                try:
+                    playlist = parent / "Сезон.m3u8"
+                    if playlist.resolve().is_relative_to(root) and playlist.is_file():
+                        playlist.unlink()
+                    if parent.resolve().is_relative_to(root) and parent != root and not any(parent.iterdir()):
+                        parent.rmdir()
+                        if parent.parent.resolve().is_relative_to(root) and parent.parent != root and not any(parent.parent.iterdir()):
+                            parent.parent.rmdir()
+                except OSError:
+                    pass
+        self.store.delete_job(job_id)
+        await self.notify({"type": "job_deleted", "job_id": job_id})
 
     async def _publish(self, job: DownloadJob) -> None:
         self.store.save_job(job)
@@ -229,10 +296,19 @@ class JobManager:
         destination = Path(job.output_dir) / safe_name(catalog.title) / season
         destination.mkdir(parents=True, exist_ok=True)
         label = f"S{episode.season:02d}E{episode.number:02d}" if episode.season else "Фільм"
-        filename = safe_name(f"{catalog.title} {label} ({episode.voice}, {job.quality})") + ".mp4"
+
+        if job.quality in ("max", "MAX", "Максимальна"):
+            chosen_variant = max(episode.variants, key=lambda v: (v.height, v.bandwidth)) if episode.variants else None
+            actual_quality = chosen_variant.label if chosen_variant else "max"
+            estimated_duration = chosen_variant.duration_seconds if chosen_variant else 0
+        else:
+            actual_quality = job.quality
+            estimated_duration = next(variant.duration_seconds for variant in episode.variants if variant.label == job.quality)
+
+        filename = safe_name(f"{catalog.title} {label} ({episode.voice}, {actual_quality})") + ".mp4"
         final = destination / filename
         partial = destination / (filename.removesuffix(".mp4") + ".part.mp4")
-        estimated_duration = next(variant.duration_seconds for variant in episode.variants if variant.label == job.quality)
+
         if await valid_video(final, estimated_duration):
             progress.status = "complete"
             progress.percent = 100
@@ -251,7 +327,10 @@ class JobManager:
             http = SourceHttp()
             try:
                 variants = await resolve_episode(http, catalog.site, episode, catalog.source_url)
-                variant = next((item for item in variants if item.label == job.quality), None)
+                if job.quality in ("max", "MAX", "Максимальна"):
+                    variant = max(variants, key=lambda v: (v.height, v.bandwidth)) if variants else None
+                else:
+                    variant = next((item for item in variants if item.label == job.quality), None)
                 if not variant:
                     raise RuntimeError("Обрана якість більше не доступна.")
                 await self._ffmpeg(job, progress, variant.playlist_url, variant.referer, partial, variant.duration_seconds)

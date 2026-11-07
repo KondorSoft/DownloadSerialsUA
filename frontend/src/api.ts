@@ -30,13 +30,18 @@ export const api = {
     request<DownloadJob>('/api/jobs', { method: 'POST', body: JSON.stringify(body) }),
   cancel: (id: string) => request<DownloadJob>(`/api/jobs/${id}/cancel`, { method: 'POST' }),
   retry: (id: string) => request<DownloadJob>(`/api/jobs/${id}/retry`, { method: 'POST' }),
-  deleteFile: (id: string, episodeId: string) => request<DownloadJob>(`/api/jobs/${id}/delete-file`, { method: 'POST', body: JSON.stringify({ episode_id: episodeId }) }),
+  deleteFile: (id: string, episodeId: string) =>
+    request<DownloadJob>(`/api/jobs/${id}/delete-file`, { method: 'POST', body: JSON.stringify({ episode_id: episodeId }) }),
+  deleteJob: (id: string, deleteFiles = false) =>
+    request<{ status: string; job_id: string }>(`/api/jobs/${id}?delete_files=${deleteFiles}`, { method: 'DELETE' }),
   getFolder: () => request<{ path: string }>('/api/folder'),
   saveFolder: (path: string) => request<{ path: string }>('/api/folder', { method: 'PUT', body: JSON.stringify({ path }) }),
   chooseFolder: (path: string) => request<{ path: string }>('/api/folder/select', { method: 'POST', body: JSON.stringify({ path }) }),
 };
 
-export function connectEvents(onEvent: (event: { type: 'scan' | 'job'; scan?: ScanState; job?: DownloadJob }) => void): WebSocket {
+export function connectEvents(
+  onEvent: (event: { type: 'scan' | 'job' | 'job_deleted'; scan?: ScanState; job?: DownloadJob; job_id?: string }) => void
+): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const socket = new WebSocket(`${protocol}//${window.location.host}/api/events?token=${encodeURIComponent(token)}`);
   socket.onmessage = (message) => onEvent(JSON.parse(message.data));

@@ -169,3 +169,94 @@ def test_delete_file_api_updates_job_and_keeps_unrelated_file(tmp_path):
         assert response.json()["episodes"][0]["status"] == "deleted"
     assert not video.exists()
     assert unrelated.exists()
+
+
+def test_delete_job_api_removes_from_store_and_keeps_files(tmp_path):
+    from app.models import DownloadJob, EpisodeProgress
+
+    video = tmp_path / "film.mp4"
+    video.write_bytes(b"video")
+    app = create_app(tmp_path / "data", token="test-token")
+    app.state.store.save_job(DownloadJob(id="job123", catalog_id="scan", title="Фільм", quality="800p",
+        output_dir=str(tmp_path), parallel_limit=1, estimated_bytes=10, status="complete",
+        episodes=[EpisodeProgress(episode_id="film", number=1, voice="Українська", status="complete",
+                                  percent=100, output_file=str(video))]))
+    with TestClient(app) as client:
+        url = "/api/jobs/job123"
+        assert client.delete(url).status_code == 401
+        response = client.delete(url, headers={"X-App-Token": "test-token"})
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+        assert response.json()["job_id"] == "job123"
+        # Confirm it is removed from jobs list
+        assert app.state.store.get_job("job123") is None
+        # Confirm video still exists on disk
+        assert video.exists()
+
+
+def test_delete_job_api_with_delete_files(tmp_path):
+    from app.models import DownloadJob, EpisodeProgress
+
+    sub_dir = tmp_path / "Series" / "Season 1"
+    sub_dir.mkdir(parents=True)
+    video = sub_dir / "ep1.mp4"
+    video.write_bytes(b"video")
+    playlist = sub_dir / "Сезон.m3u8"
+    playlist.write_text("#EXTM3U\nep1.mp4\n", encoding="utf-8")
+
+    app = create_app(tmp_path / "data", token="test-token")
+    app.state.store.save_job(DownloadJob(id="job456", catalog_id="scan", title="Серіал", quality="800p",
+        output_dir=str(tmp_path), parallel_limit=1, estimated_bytes=10, status="complete",
+        episodes=[EpisodeProgress(episode_id="ep1", number=1, voice="Українська", status="complete",
+                                  percent=100, output_file=str(video))]))
+    with TestClient(app) as client:
+        url = "/api/jobs/job456?delete_files=true"
+        response = client.delete(url, headers={"X-App-Token": "test-token"})
+        assert response.status_code == 200
+        assert app.state.store.get_job("job456") is None
+        assert not video.exists()
+        assert not playlist.exists()
+
+
+def test_create_job_with_max_quality(tmp_path):
+    v1080 = Variant(label="1080p", width=1920, height=1080, bandwidth=2_000_000,
+                    duration_seconds=10, estimated_bytes=2_500_000,
+                    playlist_url="https://ashdi.vip/hls/1080/index.m3u8", referer="https://ashdi.vip/vod/1")
+    v720 = Variant(label="720p", width=1280, height=720, bandwidth=1_000_000,
+                   duration_seconds=10, estimated_bytes=1_250_000,
+                   playlist_url="https://ashdi.vip/hls/720/index.m3u8", referer="https://ashdi.vip/vod/1")
+
+    # ep1 has 1080p and 720p; ep2 has only 720p
+    ep1 = Episode(id="ep1", number=1, season=1, voice="Тест", source_url="https://ashdi.vip/vod/1", variants=[v1080, v720])
+    ep2 = Episode(id="ep2", number=2, season=1, voice="Тест", source_url="https://ashdi.vip/vod/2", variants=[v720])
+
+    catalog = Catalog(id="cat_max", source_url="https://uakino.best/series.html", site="UAKINO",
+                      title="Тестовий Серіал", season=1, episodes=[ep1, ep2])
+
+    app = create_app(tmp_path / "data", token="test-token")
+    app.state.store.save_scan(ScanState(id="scan_max", status="complete", catalog=catalog))
+
+    with TestClient(app) as client:
+        # Standard 1080p should fail because ep2 doesn't have 1080p
+        r_fail = client.post("/api/jobs", headers={"X-App-Token": "test-token"}, json={
+            "catalog_id": "scan_max",
+            "episode_ids": ["ep1", "ep2"],
+            "quality": "1080p",
+            "output_dir": str(tmp_path),
+            "parallel_limit": 1
+        })
+        assert r_fail.status_code == 400
+
+        # Max quality should succeed and choose best variant for each (1080p for ep1, 720p for ep2)
+        r_ok = client.post("/api/jobs", headers={"X-App-Token": "test-token"}, json={
+            "catalog_id": "scan_max",
+            "episode_ids": ["ep1", "ep2"],
+            "quality": "max",
+            "output_dir": str(tmp_path),
+            "parallel_limit": 1
+        })
+        assert r_ok.status_code == 200
+        job_data = r_ok.json()
+        assert job_data["quality"] == "max"
+        assert job_data["resolution"] == "Різна роздільність"
+        assert job_data["estimated_bytes"] == 2_500_000 + 1_250_000

@@ -46,6 +46,12 @@ class Store:
     def get_job(self, job_id: str) -> DownloadJob | None:
         return self._get("jobs", job_id, DownloadJob)
 
+    def delete_job(self, job_id: str) -> bool:
+        with self.lock:
+            cursor = self.db.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+            self.db.commit()
+            return cursor.rowcount > 0
+
     def list_jobs(self) -> list[DownloadJob]:
         with self.lock:
             rows = self.db.execute("SELECT payload FROM jobs ORDER BY rowid DESC LIMIT 30").fetchall()
@@ -74,4 +80,3 @@ class Store:
                             episode.error = "Роботу перервано. Натисніть «Повторити невдалі»."
                     self.db.execute("UPDATE jobs SET payload=? WHERE id=?", (job.model_dump_json(), job.id))
             self.db.commit()
-
