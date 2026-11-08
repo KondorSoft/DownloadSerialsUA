@@ -23,3 +23,17 @@ def test_uakino_film_player_creates_single_film():
     assert title == "Марті"
     assert episode.source_url == "https://ashdi.vip/vod/298569"
     assert episode.season is None
+
+
+def test_uakino_sezon_poluvannia_title_and_season():
+    title, season = uakino.title_and_season("Сезон полювання")
+    assert title == "Сезон полювання"
+    assert season is None
+
+    title2, season2 = uakino.title_and_season("Сезон полювання 2")
+    assert title2 == "Сезон полювання 2"
+    assert season2 is None
+
+    title3, season3 = uakino.title_and_season("Дивні дива 4 сезон")
+    assert title3 == "Дивні дива"
+    assert season3 == 4

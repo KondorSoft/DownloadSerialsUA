@@ -14,6 +14,13 @@ def test_supported_pages_and_blocked_targets():
             normalize_source_url(value)
     with pytest.raises(ValueError):
         validate_url("https://localhost/secret", kind="media")
+    with pytest.raises(ValueError):
+        validate_url("http://localhost/secret", kind="media")
+
+    # Media streams allow both https and http on allowed media roots
+    assert validate_url("https://ashdi.vip/stream/index.m3u8", kind="media") == "https://ashdi.vip/stream/index.m3u8"
+    assert validate_url("http://ashdi.vip/stream/index.m3u8", kind="media") == "http://ashdi.vip/stream/index.m3u8"
+    assert validate_url("http://node1.ashdi.vip:80/segment.ts", kind="media") == "http://node1.ashdi.vip/segment.ts"
 
 
 def test_hls_qualities_and_estimates():
