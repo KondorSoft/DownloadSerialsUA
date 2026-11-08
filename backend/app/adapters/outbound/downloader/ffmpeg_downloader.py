@@ -5,6 +5,7 @@ import json
 import shutil
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from app.ports.outbound.downloader import ProgressReporter, VideoDownloaderPort
 
@@ -41,19 +42,20 @@ class FFmpegDownloaderAdapter(VideoDownloaderPort):
     async def verify_video(self, path: Path, expected_duration: float) -> bool:
         return await valid_video(path, expected_duration)
 
-    async def download_stream(
+    async def _run_ffmpeg(
         self,
+        ffmpeg_bin: str,
         job_id: str,
         episode_id: str,
-        playlist_url: str,
+        url: str,
         referer: str,
         output_file: Path,
         duration: float,
         on_progress: ProgressReporter | None = None,
-    ) -> None:
-        ffmpeg_bin = shutil.which("ffmpeg")
-        if not ffmpeg_bin:
-            raise RuntimeError("Не знайдено FFmpeg. Встановіть FFmpeg і запустіть застосунок знову.")
+    ) -> tuple[int, str]:
+        extra_args: list[str] = []
+        if url.startswith("https://"):
+            extra_args.extend(["-tls_verify", "0"])
 
         process = await asyncio.create_subprocess_exec(
             ffmpeg_bin,
@@ -65,10 +67,11 @@ class FFmpegDownloaderAdapter(VideoDownloaderPort):
             "0.5",
             "-progress",
             "pipe:1",
+            *extra_args,
             "-headers",
             f"Referer: {referer}\r\nUser-Agent: Mozilla/5.0\r\n",
             "-i",
-            playlist_url,
+            url,
             "-map",
             "0:v:0",
             "-map",
@@ -109,10 +112,45 @@ class FFmpegDownloaderAdapter(VideoDownloaderPort):
 
             await process.wait()
             stderr = (await stderr_task).decode("utf-8", errors="replace")
-            if process.returncode:
-                raise RuntimeError(stderr[-500:] or f"FFmpeg завершився з кодом {process.returncode}.")
+            return process.returncode or 0, stderr
         finally:
             self.processes.pop((job_id, episode_id), None)
+
+    async def download_stream(
+        self,
+        job_id: str,
+        episode_id: str,
+        playlist_url: str,
+        referer: str,
+        output_file: Path,
+        duration: float,
+        on_progress: ProgressReporter | None = None,
+    ) -> None:
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if not ffmpeg_bin:
+            raise RuntimeError("Не знайдено FFmpeg. Встановіть FFmpeg і запустіть застосунок знову.")
+
+        target_url = playlist_url
+        parts = urlsplit(target_url)
+        host = (parts.hostname or "").lower()
+        if (host == "ashdi.vip" or host.endswith(".ashdi.vip")) and parts.scheme == "https":
+            target_url = urlunsplit(("http", parts.netloc, parts.path, parts.query, parts.fragment))
+
+        returncode, stderr = await self._run_ffmpeg(
+            ffmpeg_bin, job_id, episode_id, target_url, referer, output_file, duration, on_progress
+        )
+
+        if returncode != 0 and target_url.startswith("https://"):
+            if "Peer certificate failed verification" in stderr or "tls" in stderr.lower():
+                if output_file.exists():
+                    output_file.unlink()
+                http_url = urlunsplit(("http", parts.netloc, parts.path, parts.query, parts.fragment))
+                returncode, stderr = await self._run_ffmpeg(
+                    ffmpeg_bin, job_id, episode_id, http_url, referer, output_file, duration, on_progress
+                )
+
+        if returncode != 0:
+            raise RuntimeError(stderr[-500:] or f"FFmpeg завершився з кодом {returncode}.")
 
     def cancel_download(self, job_id: str, episode_id: str | None = None) -> None:
         for (current_job, current_ep), process in list(self.processes.items()):
