@@ -4,13 +4,18 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
-from app.models import Catalog, Episode
-from app.security import normalize_source_url
-from app.sources import uaflix, uakino
-from app.sources.http import SourceHttp
-
+from app.domain.models import Catalog, Episode
+from app.domain.security import normalize_source_url
+from app.adapters.outbound.sources import uaflix, uakino
+from app.adapters.outbound.sources.http import SourceHttp
 
 ProgressCallback = Callable[[int, int], Awaitable[None]]
+
+
+async def resolve_episode(http: SourceHttp, site: str, episode: Episode, page_url: str):
+    if site == "UAKINO":
+        return await uakino.resolve(http, episode.source_url, page_url)
+    return await uaflix.resolve(http, episode.source_url)
 
 
 async def scan(raw_url: str, progress: ProgressCallback | None = None) -> Catalog:
@@ -46,9 +51,3 @@ async def scan(raw_url: str, progress: ProgressCallback | None = None) -> Catalo
                        title=title, season=season, episodes=episodes)
     finally:
         await http.close()
-
-
-async def resolve_episode(http: SourceHttp, site: str, episode: Episode, page_url: str):
-    if site == "UAKINO":
-        return await uakino.resolve(http, episode.source_url, page_url)
-    return await uaflix.resolve(http, episode.source_url)
