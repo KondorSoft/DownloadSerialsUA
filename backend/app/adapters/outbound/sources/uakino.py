@@ -41,7 +41,10 @@ def _read_browser(url: str, *, headless: bool) -> tuple[str, list[dict[str, str]
                     voice: item.dataset.voice || 'Невідоме озвучення',
                     url: new URL(item.dataset.file, location.href).href
                 }));
-                const iframe = root?.querySelector('iframe[src]') || document.querySelector('iframe#pre[src*="ashdi.vip/vod/"]');
+                const iframe = root?.querySelector('iframe[src]')
+                    || document.querySelector(
+                        'iframe#pre[src*="ashdi.vip/vod/"], iframe[id^="pre-"][src*="ashdi.vip/vod/"], .players-section iframe[src*="ashdi.vip/vod/"], iframe[src*="ashdi.vip/vod/"]'
+                    );
                 return iframe ? [{number:'1', voice:'Українська', url:new URL(iframe.src, location.href).href}] : [];
             }""")
             return title.strip(), data
