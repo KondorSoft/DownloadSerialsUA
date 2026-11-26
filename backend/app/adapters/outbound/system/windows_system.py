@@ -6,23 +6,32 @@ import os
 import shutil
 import subprocess
 import sys
-import winreg
 from pathlib import Path
+
+try:
+    import winreg
+except ImportError:
+    winreg = None
 
 from app.ports.outbound.system import SystemPort
 
 
 class WindowsSystemAdapter(SystemPort):
     def default_downloads_folder(self) -> str:
-        try:
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
-            ) as key:
-                raw = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")[0]
-                return os.path.expandvars(raw)
-        except OSError:
-            return str(Path.home() / "Downloads")
+        env_downloads = os.environ.get("KADR_DOWNLOADS_DIR")
+        if env_downloads:
+            return env_downloads
+        if winreg is not None:
+            try:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders",
+                ) as key:
+                    raw = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")[0]
+                    return os.path.expandvars(raw)
+            except OSError:
+                pass
+        return str(Path.home() / "Downloads")
 
     def get_free_disk_space(self, path: Path) -> int:
         return shutil.disk_usage(path).free
@@ -38,12 +47,15 @@ class WindowsSystemAdapter(SystemPort):
         )
         main_mod = sys.modules.get("app.main")
         sub_run = getattr(main_mod, "subprocess", subprocess).run if main_mod else subprocess.run
-        process = await asyncio.to_thread(
-            sub_run,
-            ["powershell", "-NoProfile", "-STA", "-Command", command],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=300,
-        )
+        try:
+            process = await asyncio.to_thread(
+                sub_run,
+                ["powershell", "-NoProfile", "-STA", "-Command", command],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=300,
+            )
+        except (FileNotFoundError, OSError):
+            return ""
         return process.stdout.strip() if process.returncode == 0 else ""

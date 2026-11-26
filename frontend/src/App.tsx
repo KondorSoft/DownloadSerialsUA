@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { api, connectEvents, token } from './api';
+import { api, connectEvents } from './api';
 import {
   CatalogHeading,
   DeleteJobModal,
@@ -112,12 +112,14 @@ export default function App() {
           setJobs((current) => current.filter((item) => item.id !== event.job_id));
         }
       });
-      socket.onclose = () => {
-        timer = window.setTimeout(open, 2000);
+      socket.onclose = (event) => {
+        if (event.code !== 1008) {
+          timer = window.setTimeout(open, 2000);
+        }
       };
     };
 
-    if (token) open();
+    open();
     return () => {
       if (socket) {
         socket.onclose = null;

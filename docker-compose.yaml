@@ -1,0 +1,39 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      KADR_DATA_DIR: /data
+      KADR_DOWNLOADS_DIR: /downloads
+      KADR_APP_TOKEN: ${KADR_APP_TOKEN:-kadr-local-token}
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    volumes:
+      - kadr_data:/data
+      - ${DOWNLOADS_DIR:-./downloads}:/downloads
+    expose:
+      - "8765"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      BACKEND_URL: http://backend:8765
+      KADR_APP_TOKEN: ${KADR_APP_TOKEN:-kadr-local-token}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  kadr_data:

@@ -20,7 +20,7 @@ from app.application import FolderService, JobService, ScanService
 
 def create_app(data_dir: Path | None = None, token: str | None = None) -> FastAPI:
     app = FastAPI(title="Кадр — завантаження серіалів")
-    app_token = token or secrets.token_urlsafe(32)
+    app_token = token or os.environ.get("KADR_APP_TOKEN") or secrets.token_urlsafe(32)
     app.state.token = app_token
 
     # 1. Outbound / Driven Adapters

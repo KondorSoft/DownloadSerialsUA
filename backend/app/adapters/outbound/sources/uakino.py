@@ -19,8 +19,10 @@ FILE_RE = re.compile(r"\bfile\s*:\s*['\"]([^'\"]+)['\"]")
 
 def _read_browser(url: str, *, headless: bool) -> tuple[str, list[dict[str, str]]]:
     with sync_playwright() as playwright:
-        options = {"headless": headless}
+        options: dict[str, object] = {"headless": headless}
         options["channel"] = "chromium" if os.environ.get("PLAYWRIGHT_BROWSERS_PATH") else "msedge"
+        if os.name != "nt":
+            options["args"] = ["--no-sandbox"]
         browser = playwright.chromium.launch(**options)
         try:
             page = browser.new_page(locale="uk-UA")
@@ -59,6 +61,8 @@ async def discover(url: str) -> tuple[str, list[dict[str, str]]]:
         raise RuntimeError(f"Не вдалося відкрити UAKINO в браузері: {error}") from error
     if items:
         return title, items
+    if os.name != "nt" and not os.environ.get("DISPLAY"):
+        raise RuntimeError("Список серій UAKINO недоступний. Перевірте сторінку в браузері та спробуйте знову.")
     title, items = await asyncio.to_thread(_read_browser, url, headless=False)
     if not items:
         raise RuntimeError("Список серій UAKINO недоступний. Перевірте сторінку в браузері та спробуйте знову.")
