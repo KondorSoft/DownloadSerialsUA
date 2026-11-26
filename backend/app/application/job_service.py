@@ -351,8 +351,9 @@ class JobService(JobManagementUseCase):
             (folder / "Сезон.m3u8").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     async def _download_one(self, job: DownloadJob, progress: EpisodeProgress, episode: Episode, catalog: Catalog) -> None:
-        season = f"Сезон {episode.season}" if episode.season else "Фільм"
-        destination = Path(job.output_dir) / safe_name(catalog.title) / season
+        destination = Path(job.output_dir) / safe_name(catalog.title)
+        if episode.season:
+            destination = destination / f"Сезон {episode.season}"
         destination.mkdir(parents=True, exist_ok=True)
         label = f"S{episode.season:02d}E{episode.number:02d}" if episode.season else "Фільм"
 

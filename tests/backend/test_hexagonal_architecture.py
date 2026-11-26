@@ -217,3 +217,48 @@ def test_job_service_use_case_with_max_quality(tmp_path):
         assert any(e.get("type") == "job_deleted" for e in publisher.events)
 
     asyncio.run(run_scenario())
+
+
+def test_job_service_saves_film_in_title_folder(tmp_path):
+    async def run_scenario():
+        repo = InMemoryJobRepository()
+        downloader = FakeDownloader()
+        system = FakeSystem()
+        publisher = FakePublisher()
+
+        v1080 = Variant(label="1080p", width=1920, height=1080, bandwidth=2000, duration_seconds=5,
+                        estimated_bytes=2000, playlist_url="url1080", referer="ref")
+        film_ep = Episode(id="film1", number=1, season=None, voice="Українська", source_url="url1", variants=[v1080])
+        catalog = Catalog(id="cat_film", source_url="https://uakino.best/film.html", site="UAKINO",
+                          title="Марті", season=None, episodes=[film_ep])
+        repo.save_scan(ScanState(id="scan_film", status="complete", catalog=catalog))
+
+        job_service = JobService(
+            repository=repo,
+            downloader=downloader,
+            source=FakeMediaSource(episodes=[film_ep]),
+            system=system,
+            publisher=publisher,
+        )
+
+        out_dir = tmp_path / "downloads"
+        out_dir.mkdir()
+
+        job = job_service.create_job(
+            scan_id="scan_film",
+            episode_ids=["film1"],
+            quality="1080p",
+            output_dir=str(out_dir),
+            parallel_limit=1,
+        )
+
+        await asyncio.wait_for(job_service.tasks[job.id], 5)
+
+        finished = repo.get_job(job.id)
+        assert finished.status == "complete"
+        assert finished.episodes[0].output_file is not None
+        output_path = Path(finished.episodes[0].output_file)
+        assert output_path.parent == out_dir / "Марті"
+        assert output_path.exists()
+
+    asyncio.run(run_scenario())

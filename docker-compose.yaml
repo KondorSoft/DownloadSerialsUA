@@ -10,7 +10,7 @@ services:
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     volumes:
       - kadr_data:/data
-      - ${DOWNLOADS_DIR:-./downloads}:/downloads
+      - ${DOWNLOADS_DIR:-/home/media}:/downloads
     expose:
       - "8765"
     healthcheck:
@@ -29,7 +29,7 @@ services:
       BACKEND_URL: http://backend:8765
       KADR_APP_TOKEN: ${KADR_APP_TOKEN:-kadr-local-token}
     ports:
-      - "${FRONTEND_PORT:-8080}:80"
+      - "${FRONTEND_PORT:-8088}:80"
     depends_on:
       backend:
         condition: service_healthy
