@@ -218,6 +218,42 @@ def test_delete_job_api_with_delete_files(tmp_path):
         assert not playlist.exists()
 
 
+def test_delete_cancelled_job_deletes_downloaded_and_partial_files(tmp_path):
+    from app.models import DownloadJob, EpisodeProgress
+
+    sub_dir = tmp_path / "Серіал" / "Сезон 1"
+    sub_dir.mkdir(parents=True)
+    completed_video = sub_dir / "Серіал S01E01 (Українська, 800p).mp4"
+    completed_video.write_bytes(b"video")
+    partial_video = sub_dir / "Серіал S01E02 (Українська, 800p).part.mp4"
+    partial_video.write_bytes(b"partial")
+
+    app = create_app(tmp_path / "data", token="test-token")
+    app.state.store.save_job(DownloadJob(
+        id="job_cancelled",
+        catalog_id="scan",
+        title="Серіал",
+        quality="800p",
+        output_dir=str(tmp_path),
+        parallel_limit=1,
+        estimated_bytes=20,
+        status="cancelled",
+        episodes=[
+            EpisodeProgress(episode_id="ep1", number=1, season=1, voice="Українська", status="complete",
+                            percent=100, output_file=str(completed_video)),
+            EpisodeProgress(episode_id="ep2", number=2, season=1, voice="Українська", status="cancelled",
+                            percent=40, output_file=None),
+        ],
+    ))
+    with TestClient(app) as client:
+        response = client.delete("/api/jobs/job_cancelled", headers={"X-App-Token": "test-token"})
+        assert response.status_code == 200
+        assert app.state.store.get_job("job_cancelled") is None
+        assert not completed_video.exists()
+        assert not partial_video.exists()
+        assert not sub_dir.exists()
+
+
 def test_create_job_with_max_quality(tmp_path):
     v1080 = Variant(label="1080p", width=1920, height=1080, bandwidth=2_000_000,
                     duration_seconds=10, estimated_bytes=2_500_000,

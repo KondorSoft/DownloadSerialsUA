@@ -36,7 +36,10 @@ export default function App() {
   const isFilm = !!catalog && catalog.episodes.length === 1 && catalog.episodes[0].season === null;
   const voices = useMemo(() => [...new Set(catalog?.episodes.map((episode) => episode.voice) || [])], [catalog]);
   const visibleEpisodes = useMemo(() => (catalog?.episodes || []).filter((episode) => episode.voice === voice), [catalog, voice]);
-  const selectedEpisodes = useMemo(() => visibleEpisodes.filter((episode) => selected.includes(episode.id)), [visibleEpisodes, selected]);
+  const selectedEpisodes = useMemo(
+    () => visibleEpisodes.filter((episode) => episode.variants.length > 0 && selected.includes(episode.id)),
+    [visibleEpisodes, selected]
+  );
 
   const qualities: QualityOption[] = useMemo(() => {
     if (!selectedEpisodes.length) return [];
@@ -151,7 +154,11 @@ export default function App() {
 
   useEffect(() => {
     if (!catalog || !voice) return;
-    setSelected(catalog.episodes.filter((episode) => episode.voice === voice).map((episode) => episode.id));
+    setSelected(
+      catalog.episodes
+        .filter((episode) => episode.voice === voice && episode.variants.length > 0)
+        .map((episode) => episode.id)
+    );
   }, [catalog?.id, voice]);
 
   useEffect(() => {
@@ -177,6 +184,7 @@ export default function App() {
   }
 
   function toggle(episode: Episode) {
+    if (!episode.variants.length) return;
     setSelected((current) =>
       current.includes(episode.id) ? current.filter((id) => id !== episode.id) : [...current, episode.id]
     );
@@ -226,12 +234,13 @@ export default function App() {
 
   async function confirmDeleteJob(job: DownloadJob, deleteFiles: boolean) {
     setDeleteBusy(true);
+    const shouldDeleteFiles = deleteFiles || job.status === 'cancelled';
     try {
-      await api.deleteJob(job.id, deleteFiles);
+      await api.deleteJob(job.id, shouldDeleteFiles);
       setJobs((current) => current.filter((item) => item.id !== job.id));
       setJobToDelete(null);
       setMessage(
-        deleteFiles
+        shouldDeleteFiles
           ? `Завдання «${job.title}» та файли на диску видалено.`
           : `Завдання «${job.title}» видалено зі списку.`
       );
@@ -283,7 +292,13 @@ export default function App() {
                 visibleEpisodes={visibleEpisodes}
                 selected={selected}
                 onToggleEpisode={toggle}
-                onSelectAll={() => setSelected(visibleEpisodes.map((episode) => episode.id))}
+                onSelectAll={() =>
+                  setSelected(
+                    visibleEpisodes
+                      .filter((episode) => episode.variants.length > 0)
+                      .map((episode) => episode.id)
+                  )
+                }
                 onSelectNone={() => setSelected([])}
               />
 

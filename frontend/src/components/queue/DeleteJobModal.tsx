@@ -35,10 +35,12 @@ export function DeleteJobModal({
 
   if (!job) return null;
 
+  const isCancelled = job.status === 'cancelled';
   const hasFiles = job.episodes.some(
     (episode) => episode.status === 'complete' && episode.output_file
   );
   const isDownloading = ['queued', 'downloading'].includes(job.status);
+  const willDeleteFiles = isCancelled || deleteFiles;
   const filmJob = job.episodes.length === 1 && job.episodes[0].season === null;
 
   return (
@@ -83,7 +85,14 @@ export function DeleteJobModal({
           </div>
         )}
 
-        {hasFiles && (
+        {isCancelled && (
+          <div className="modal-warning">
+            <AlertTriangle size={17} />
+            <span>Завдання скасовано — файли, які завантажувалися, також будуть видалені з диска.</span>
+          </div>
+        )}
+
+        {!isCancelled && hasFiles && (
           <label className="modal-checkbox">
             <input
               type="checkbox"
@@ -107,11 +116,11 @@ export function DeleteJobModal({
           <button
             type="button"
             className="button-danger"
-            onClick={() => onConfirm(job, deleteFiles)}
+            onClick={() => onConfirm(job, willDeleteFiles)}
             disabled={busy}
           >
             <Trash2 size={15} />
-            {deleteFiles ? 'Видалити завдання та файли' : 'Видалити завдання'}
+            {willDeleteFiles ? 'Видалити завдання та файли' : 'Видалити завдання'}
           </button>
         </div>
       </div>

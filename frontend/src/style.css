@@ -47,7 +47,7 @@ h1{font-size:clamp(43px,5.2vw,77px);line-height:1.03;letter-spacing:-.066em;font
 .voice-tabs button{border:1px solid var(--line);background:transparent;color:var(--muted);padding:8px 14px;border-radius:7px;white-space:nowrap}.voice-tabs button.active{background:#294d57;color:var(--text);border-color:#7299a1}
 .episode-list{max-height:460px;overflow-y:auto;scrollbar-color:#4a6975 transparent}
 .episode-row{border-top:1px solid #2c4956;min-height:72px;display:flex;align-items:center;gap:15px;padding:12px 25px;cursor:pointer;transition:background .12s ease}
-.episode-row:hover{background:#1d3b48}.episode-row.selected{background:#1a3946}
+.episode-row:hover:not(.disabled){background:#1d3b48}.episode-row.selected{background:#1a3946}.episode-row.disabled{cursor:not-allowed;opacity:.5}
 .episode-row input{position:absolute;opacity:0;width:1px;height:1px}.episode-row:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:-3px}
 .custom-check{width:20px;height:20px;border-radius:5px;border:1.5px solid #63828d;display:grid;place-items:center;flex-shrink:0}.selected .custom-check{background:var(--accent);border-color:var(--accent);color:#122936}
 .episode-number{font-family:'Space Grotesk',sans-serif;color:var(--cyan);font-size:13px;min-width:66px}

@@ -259,6 +259,8 @@ class JobService(JobManagementUseCase):
         if not job:
             raise ValueError("Завдання не знайдено.")
 
+        should_delete_files = delete_files or job.status == "cancelled" or job_id in self.cancelled
+
         self.cancelled.add(job_id)
         self.downloader.cancel_download(job_id)
         if job_id in self.tasks:
@@ -266,27 +268,51 @@ class JobService(JobManagementUseCase):
             if not task.done():
                 task.cancel()
 
-        if delete_files:
+        if should_delete_files:
             root = Path(job.output_dir).resolve()
             parent_dirs: set[Path] = set()
+            empty_check_dirs: set[Path] = set()
+            base_dir = (root / safe_name(job.title)).resolve()
+
             for episode in job.episodes:
                 if episode.output_file:
                     target = Path(episode.output_file).resolve()
                     if target.is_relative_to(root) and target.suffix.lower() == ".mp4" and target.is_file():
                         parent_dirs.add(target.parent)
+                        empty_check_dirs.add(target.parent)
                         try:
                             target.unlink()
                         except OSError:
                             pass
+
+                ep_dir = (base_dir / f"Сезон {episode.season}" if episode.season else base_dir).resolve()
+                if ep_dir.is_relative_to(root) and ep_dir.is_dir():
+                    label = f"S{episode.season:02d}E{episode.number:02d}" if episode.season else "Фільм"
+                    prefix = safe_name(f"{job.title} {label} ({episode.voice},")
+                    for candidate in ep_dir.iterdir():
+                        if not candidate.is_file():
+                            continue
+                        if candidate.name.startswith(prefix) and candidate.name.endswith(".part.mp4"):
+                            try:
+                                candidate.unlink()
+                            except OSError:
+                                pass
+                    empty_check_dirs.add(ep_dir)
+
             for parent in parent_dirs:
                 try:
                     playlist = parent / "Сезон.m3u8"
                     if playlist.resolve().is_relative_to(root) and playlist.is_file():
                         playlist.unlink()
-                    if parent.resolve().is_relative_to(root) and parent != root and not any(parent.iterdir()):
-                        parent.rmdir()
-                        if parent.parent.resolve().is_relative_to(root) and parent.parent != root and not any(parent.parent.iterdir()):
-                            parent.parent.rmdir()
+                except OSError:
+                    pass
+
+            for directory in empty_check_dirs:
+                try:
+                    if directory.resolve().is_relative_to(root) and directory != root and directory.is_dir() and not any(directory.iterdir()):
+                        directory.rmdir()
+                        if directory.parent.resolve().is_relative_to(root) and directory.parent != root and directory.parent.is_dir() and not any(directory.parent.iterdir()):
+                            directory.parent.rmdir()
                 except OSError:
                     pass
 
@@ -381,56 +407,63 @@ class JobService(JobManagementUseCase):
         await self._publish(job)
         error = "Невідома помилка"
 
-        for attempt in range(1, 4):
-            if job.id in self.cancelled:
-                break
-            if partial.exists():
-                partial.unlink()
-
-            try:
-                variants = await self.source.resolve(episode, catalog.source_url)
-                if job.quality in ("max", "MAX", "Максимальна"):
-                    variant = max(variants, key=lambda v: (v.height, v.bandwidth)) if variants else None
-                else:
-                    variant = next((item for item in variants if item.label == job.quality), None)
-                if not variant:
-                    raise RuntimeError("Обрана якість більше не доступна.")
-
-                async def on_progress(percent: float, bytes_written: int, speed: str) -> None:
-                    progress.percent = percent
-                    progress.bytes_written = bytes_written
-                    progress.speed = speed
-                    await self._publish(job)
-
-                await self.downloader.download_stream(
-                    job.id,
-                    progress.episode_id,
-                    variant.playlist_url,
-                    variant.referer,
-                    partial,
-                    variant.duration_seconds,
-                    on_progress=on_progress,
-                )
-
+        try:
+            for attempt in range(1, 4):
                 if job.id in self.cancelled:
                     break
-                if not await self.downloader.verify_video(partial, variant.duration_seconds):
-                    raise RuntimeError("Отриманий файл неповний або не містить відео й аудіо.")
+                if partial.exists():
+                    partial.unlink()
 
-                partial.replace(final)
-                progress.status = "complete"
-                progress.percent = 100
-                progress.bytes_written = final.stat().st_size
-                progress.output_file = str(final)
-                progress.error = None
-                await self._publish(job)
-                return
-            except Exception as exception:
-                error = str(exception)
-                progress.error = f"Спроба {attempt}/3: {error}"
-                await self._publish(job)
-                if attempt < 3:
-                    await asyncio.sleep(attempt * 2)
+                try:
+                    variants = await self.source.resolve(episode, catalog.source_url)
+                    if job.quality in ("max", "MAX", "Максимальна"):
+                        variant = max(variants, key=lambda v: (v.height, v.bandwidth)) if variants else None
+                    else:
+                        variant = next((item for item in variants if item.label == job.quality), None)
+                    if not variant:
+                        raise RuntimeError("Обрана якість більше не доступна.")
+
+                    async def on_progress(percent: float, bytes_written: int, speed: str) -> None:
+                        progress.percent = percent
+                        progress.bytes_written = bytes_written
+                        progress.speed = speed
+                        await self._publish(job)
+
+                    await self.downloader.download_stream(
+                        job.id,
+                        progress.episode_id,
+                        variant.playlist_url,
+                        variant.referer,
+                        partial,
+                        variant.duration_seconds,
+                        on_progress=on_progress,
+                    )
+
+                    if job.id in self.cancelled:
+                        break
+                    if not await self.downloader.verify_video(partial, variant.duration_seconds):
+                        raise RuntimeError("Отриманий файл неповний або не містить відео й аудіо.")
+
+                    partial.replace(final)
+                    progress.status = "complete"
+                    progress.percent = 100
+                    progress.bytes_written = final.stat().st_size
+                    progress.output_file = str(final)
+                    progress.error = None
+                    await self._publish(job)
+                    return
+                except Exception as exception:
+                    error = str(exception)
+                    progress.error = f"Спроба {attempt}/3: {error}"
+                    await self._publish(job)
+                    if attempt < 3:
+                        await asyncio.sleep(attempt * 2)
+        finally:
+            if job.id in self.cancelled and partial.exists():
+                try:
+                    partial.unlink()
+                except OSError:
+                    pass
 
         if partial.exists():
             partial.unlink()

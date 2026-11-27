@@ -27,6 +27,8 @@ export function EpisodeList({
   onSelectAll,
   onSelectNone,
 }: EpisodeListProps) {
+  const hasAvailableEpisodes = visibleEpisodes.some((episode) => episode.variants.length > 0);
+
   return (
     <section className="content-block">
       <div className="block-title">
@@ -36,7 +38,7 @@ export function EpisodeList({
         </div>
         {!isFilm && (
           <div className="selection-actions">
-            <button type="button" onClick={onSelectAll}>
+            <button type="button" onClick={onSelectAll} disabled={!hasAvailableEpisodes}>
               Усі
             </button>
             <button type="button" onClick={onSelectNone}>
@@ -65,15 +67,17 @@ export function EpisodeList({
 
       <div className="episode-list">
         {visibleEpisodes.map((episode) => {
-          const isSelected = selected.includes(episode.id);
+          const isUnavailable = episode.variants.length === 0;
+          const isSelected = !isUnavailable && selected.includes(episode.id);
           return (
             <label
-              className={`episode-row ${isSelected ? 'selected' : ''}`}
+              className={`episode-row${isSelected ? ' selected' : ''}${isUnavailable ? ' disabled' : ''}`}
               key={episode.id}
             >
               <input
                 type="checkbox"
                 checked={isSelected}
+                disabled={isUnavailable}
                 onChange={() => onToggleEpisode(episode)}
               />
               <span className="custom-check">
